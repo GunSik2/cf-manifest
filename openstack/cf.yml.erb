@@ -33,17 +33,58 @@ z1_ip_router = "10.102.2.105"
 
 ip_nats = "[ z1_ip_nats ]" ///
 ip_routers = "[ z1_ip_routers ]" ///
+ip_consuls = "[ z1_ip_consul ]" ///
+ip_etcds = "[z1_ip_etcd]" ///
 
-username_nats = "nats"
 password_nats = "shared_secret"
 password_doppler = "shared_secret"
 password_uaabatch = "shared_secret"
 password_uaaclient = "shared_secret"
 password_scim_admin = "password"
 password_scim_sudouser = "password"
+password_route_secret = "secret"
+password_route_status = "secret"
+password_blobstore = "secret"
+password_bulk_api = "secret"
+password_db_encryption_key = "secret"
+password_internal_api = "secret"
+password_staging_upload = "secret"
+password_consul_encrypt_key = "secret"
+password_loggregator = "secret"
+password_metron = "secret"
+app_ssh_host_key_fingerprint = "a6:d1:08:0b:b0:cb:9b:5f:c4:ba:44:2a:97:26:19"
+
+z1_ip_ccdb = "10.100.0.255"  # z1_ip_postgres 
+password_ccdb_ccadmin = "password"
+schime_ccdb = "postgresql"
+port_ccdb = "5524"
+
+secret_cc_routing = "secret"
+secret_cloud_controller_username_lookup = "secret"
+secret_gorouter = "secret"
+secret_tcp_emitter = "secret"
+secret_tcp_router = "secret"
+secret_doppler = "secret"
+secret_login = "secret"
+secret_developer_console = "secret"
+secret_notifications = "secret"
+secret_ssh_proxy = "secret"
+secret_portal = "secret"
 
 ssl_pem = $(cat ssl_pem)
 ssl_key = $(cat ssl_key)
+ssl_key = 
+ssl_pub = 
+
+consul_ca_crt =  $(cat ssl_key)
+consul_server_crt =
+consul_agent_crt =
+consul_server_key =
+consul_agent_key =
+
+blobstore_server_crt =
+blobstore_server_key =
+blobstore_ca_crt =
 
 %>
 
@@ -132,7 +173,7 @@ jobs:
       nats:
         machines: <%= ip_nats %>
         password: <%= password_nats %>
-        username: <%= username_nats %>
+        username: nats_user
 
 - name: consul_z1
   instances: 1
@@ -358,14 +399,6 @@ properties:
   app_ssh:
     host_key_fingerprint: <%= app_ssh_host_key_fingerprint %>
     oauth_client_id: ssh-proxy
-
-    
-password_route_secret
-password_route_status
-app_ssh_host_key_fingerprint = "a6:d1:08:0b:b0:cb:9b:5f:c4:ba:44:2a:97:26:19"
-password_webdav
-
-
   cc:
     allow_app_ssh_access: true
     default_to_diego_backend: true
@@ -378,10 +411,10 @@ password_webdav
       buildpack_directory_key: cc-buildpacks
       webdav_config: &webdav_config
         blobstore_timeout: 5
-        password: <%= password_webdav %>
+        password: <%= password_blobstore %>
         private_endpoint: https://blobstore.service.cf.internal
         public_endpoint: https://blobstore.<%= system_domain %>
-        secret: <%= password_comm %>
+        secret: <%= password_blobstore %>
         username: blobstore-username
     droplets:
       blobstore_type: webdav
@@ -397,8 +430,8 @@ password_webdav
       blobstore_type: webdav
       resource_directory_key: cc-resources
       webdav_config: *webdav_config
-    bulk_api_password: <%= password_comm %>
-    db_encryption_key: <%= password_comm %>
+    bulk_api_password: <%= password_bulk_api %>
+    db_encryption_key: <%= password_db_encryption_key %>
     default_running_security_groups: [public_networks, dns]
     default_staging_security_groups: [public_networks, dns]
     install_buildpacks: &install_buildpacks
@@ -411,7 +444,7 @@ password_webdav
     - {name: staticfile_buildpack, package: staticfile-buildpack}
     - {name: binary_buildpack, package: binary-buildpack}
     default_buildpacks: *install_buildpacks
-    internal_api_password: <%= password_comm %>
+    internal_api_password: <%= password_internal_api %>
     quota_definitions:
       default:
         memory_limit: 102400
@@ -433,25 +466,25 @@ password_webdav
     srv_api_uri: https://api.<%= system_domain %>
     # Un normal case if loggregator can access public internet
     #srv_api_uri: https://cloud-controller-ng.service.cf.internal
-    staging_upload_password: <%= password_comm %>
+    staging_upload_password: <%= password_staging_upload %>
     staging_upload_user: staging_upload_user
+
   ccdb:
     address: <%= z1_ip_ccdb %>
     databases:
     - {name: ccdb, tag: cc}
-    db_scheme: postgres
-    port: 5524
+    db_scheme: <%= schime_ccdb %>
+    port: <%= port_ccdb %>
     roles:
-    - {name: ccadmin, password: <%= password_comm %>, tag: admin}
+    - {name: ccadmin, password: <%= password_ccdb_ccadmin %>, tag: admin}
   consul:
     agent:
       log_level: null
       domain: cf.internal
       servers:
-        lan:
-        - <%= cf_private_ip_consul %>
+        lan: <%= ip_consuls %>
     encrypt_keys:
-    - <%= password_comm %>
+    - <%= password_consul_encrypt_key %>
     ca_cert: |
 <%= indent(consul_ca_crt, 6) %>
     server_cert: |
@@ -464,10 +497,10 @@ password_webdav
 <%= indent(consul_agent_key, 6) %>
   blobstore:
     admin_users:
-    - password: <%= password_comm %>
+    - password: <%= password_blobstore %>
       username: blobstore-username
     secure_link:
-      secret: <%= password_comm %>
+      secret: <%= password_blobstore %>
     tls:
       cert: |
 <%= indent(blobstore_server_crt, 8) %>
@@ -476,23 +509,22 @@ password_webdav
       ca_cert: |
 <%= indent(blobstore_ca_crt, 8) %>
   databases:
-    db_scheme: postgres
+    db_scheme: <%= schime_ccdb %>
     address: <%= cf_private_ip_ccdb %>
     databases:
     - {name: ccdb, tag: cc, citext: true}
     - {name: uaadb, tag: uaa, citext: true}
-    port: 5524
+    port: <%= port_ccdb %>
     roles:
-    - {name: ccadmin, password: <%= password_comm %>, tag: admin}
-    - {name: uaaadmin, password: <%= password_comm %>, tag: admin}
+    - {name: ccadmin, password: <%= password_ccdb_ccadmin %>, tag: admin}
+    - {name: uaaadmin, password: <%= password_uaadb_uaaadmin %>, tag: admin}
   description: Cloud Foundry powered by Crossent PaaSXpert
   domain: <%= system_domain %>
   doppler:
     port: 4443
   etcd:
     advertise_urls_dns_suffix: etcd.service.cf.internal
-    machines: 
-    - <%= cf_private_ip_etcd %>
+    machines: <%= ip_etcds %>
     peer_require_ssl: false
     require_ssl: false
   logger_endpoint:
@@ -500,10 +532,9 @@ password_webdav
   loggregator:
     etcd:
       require_ssl: false
-      machines:
-      - <%= cf_private_ip_etcd %>
+      machines: <%= ip_etcds %>
   loggregator_endpoint:
-    shared_secret: <%= password_comm %>
+    shared_secret: <%= password_loggregator %>
   metron_agent:
     zone: z1
     buffer_size: null
@@ -514,13 +545,12 @@ password_webdav
       client_cert: null
       client_key: null
   metron_endpoint:
-    shared_secret: <%= password_comm %>
+    shared_secret: <%= password_metron %>
   nats:
-    machines: 
-    - <%= cf_private_ip_nats %>
-    password: <%= password_comm %>
+    machines: <%= ip_nats %>
+    password: <%= password_nats %>
     port: 4222
-    user: nats
+    user: nats_user
   ssl:
     skip_cert_verify: true
   system_domain: <%= system_domain %>
@@ -543,60 +573,51 @@ password_webdav
       cloud_controller_username_lookup:
         authorities: scim.userids
         authorized-grant-types: client_credentials
-        secret: <%= password_comm %>
+        secret: <%= secret_cloud_controller_username_lookup %>
       cc_routing:
         authorities: routing.router_groups.read
-        secret: <%= password_comm %>
+        secret: <%= secret_cc_routing %>
         authorized-grant-types: client_credentials
       gorouter:
         authorities: routing.routes.read
         authorized-grant-types: client_credentials,refresh_token
-        secret: <%= password_comm %>
+        secret: <%= secret_gorouter %>
       tcp_emitter:
         authorities: routing.routes.write,routing.routes.read
         authorized-grant-types: client_credentials,refresh_token
-        secret: <%= password_comm %>
+        secret: <%= secret_tcp_emitter %>
       tcp_router:
         authorities: routing.routes.read
         authorized-grant-types: client_credentials,refresh_token
-        secret: <%= password_comm %>
+        secret: <%= secret_tcp_router %>
       doppler:
         authorities: uaa.resource
-        secret: <%= password_comm %>
+        secret: <%= secret_doppler %>
       login:
         authorities: oauth.login,scim.write,clients.read,notifications.write,critical_notifications.write,emails.write,scim.userids,password.write
         authorized-grant-types: authorization_code,client_credentials,refresh_token
         redirect-uri: https://login.<%= system_domain %>
         scope: openid,oauth.approvals
-        secret: <%= password_comm %>
-      servicesmgmt:
-        authorities: uaa.resource,oauth.service,clients.read,clients.write,clients.secret
-        authorized-grant-types: authorization_code,client_credentials,password,implicit
-        autoapprove: true
-        redirect-uri: https://servicesmgmt.<%= system_domain %>/auth/cloudfoundry/callback
-        scope: openid,cloud_controller.read,cloud_controller.write
-        secret: <%= password_comm %>
+        secret: <%= secret_login %>
       developer_console:
-        secret: <%= password_comm %>
+        secret: <%= secret_developer_console %>
       notifications:
         authorities: cloud_controller.admin,scim.read
         authorized-grant-types: client_credentials
-        secret: <%= password_comm %>
+        secret: <%= secret_notifications %>
       ssh-proxy:
         authorized-grant-types: authorization_code
         autoapprove: true
         override: true
         redirect-uri: /login
         scope: openid,cloud_controller.read,cloud_controller.write,cloud_controller.admin,uaa.user
-        secret: <%= password_comm %>
+        secret: <%= secret_ssh_proxy %>
       portal:
         authorities: oauth.login,scim.write,clients.read,scim.userids,password.write,clients.secret,clients.write,uaa.admin,scim.read,doppler.firehose
         authorized-grant-types: authorization_code,client_credentials,password,implicit,refresh_token
         override: true
         scope: cloud_controller.read,cloud_controller.write,openid,cloud_controller.admin,scim.read,scim.write,doppler.firehose,uaa.user,routing.router_groups.read,uaa.admin,password.write
-        secret: <%= password_comm %>
-
-
+        secret: <%= secret_portal %>
     issuer: https://uaa.<%= system_domain %>
     jwt:
       signing_key: |
