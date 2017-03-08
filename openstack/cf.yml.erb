@@ -1,0 +1,610 @@
+<%
+
+deployment_name = "cf"
+director_uuid = "bbb24dd1-b082-46a7-891c-63a6577e77f7"
+password_bosh = "$6$FZDewYvGC8OD2$vv78Y.MDopv3oHmyTMH2FlZvQCAOLi4YWuxlpI66GHPHK7ZODFHLzRMQ1U.E5lp5jYWmCfhCeMXxFn/EEmRDF/"
+system_domain = "bosh-lite.com"
+
+security_groups = "[bosh, cf]"
+
+dns = "[8.8.8.8]"
+subnet1_id = "607516c0-326d-4eff-8f4d-7ee17326b3eb"
+subnet1_ip_range = "10.102.0.0/16"
+subnet1_ip_gateway = "10.102.0.1"
+subnet1_ip_reserved = "[10.102.0.2 - 10.102.1.40, 10.102.2.0 - 10.102.255.254]"
+subnet1_ip_static = "[10.102.1.100 - 10.102.1.255]"
+
+zone1 = "ZN_PAAS_01"
+static_ip_haproxy = "192.1680.100.100" # Floating IP
+
+z1_ip_uaadb = "10.100.0.255" # z1_ip_postgres
+password_uaadb_uaaadmin = "password"
+schime_uaadb = "postgresql"
+port_uaadb = "5524"
+
+z1_ip_ccdb = "10.100.0.255"  # z1_ip_postgres 
+
+z1_ip_nats = "10.102.2.102"
+z1_ip_etcd = "10.102.2.108"
+z1_ip_consul = "10.102.1.112"
+z1_ip_postgres = "10.102.1.104"
+z1_ip_haproxy = "10.102.1.100"
+z1_ip_router = "10.102.2.105"
+
+ip_nats = "[ z1_ip_nats ]" ///
+ip_routers = "[ z1_ip_routers ]" ///
+
+username_nats = "nats"
+password_nats = "shared_secret"
+password_doppler = "shared_secret"
+password_uaabatch = "shared_secret"
+password_uaaclient = "shared_secret"
+password_scim_admin = "password"
+password_scim_sudouser = "password"
+
+ssl_pem = $(cat ssl_pem)
+ssl_key = $(cat ssl_key)
+
+%>
+
+---
+name: <%= deployment_name %> 
+
+director_uuid: <%= director_uuid %>
+
+releases:
+- {name: cf, version: latest} 
+
+networks:
+- name: floating
+  type: vip
+  cloud_properties:
+    net_id: <%= subnet1_id %>
+    security_groups: <%= security_groups %>
+  
+- name: cf1
+  type: manual
+  subnets:
+  - cloud_properties:
+      net_id:  <%= subnet1_id %>
+      security_groups: <%= security_groups %>
+    gateway: <%= subnet1_ip_gateway %>
+    range: <%= subnet1_ip_range %>
+    reserved: <%= subnet1_ip_reserved %>
+    static: <%= subnet1_ip_static %>
+    dns: <%= dns %>
+
+resource_pools:
+- name: small_z1
+  cloud_properties:
+    availability_zone: <%= zone1 %>
+    instance_type: m1.small
+  env:
+    bosh:
+      password: <%= password_bosh %>
+  network: cf1
+  stemcell:
+    name: bosh-openstack-kvm-ubuntu-trusty-go_agent
+    version: latest
+
+compilation:
+  cloud_properties:
+    availability_zone: <%= zone1 %>
+    instance_type: m1.medium
+  network: cf1
+  reuse_compilation_vms: true
+  workers: 4
+
+update:
+  canaries: 1
+  max_in_flight: 1
+  serial: true
+  canary_watch_time: 30000-600000
+  update_watch_time: 5000-600000
+
+
+
+jobs:
+- name: nats_z1
+  instances: 1
+  resource_pool: small_z1
+  templates:
+  - {name: nats, release: cf}
+  - {name: nats_stream_forwarder, release: cf}
+  - {name: metron_agent, release: cf}
+  networks:
+  - name: cf1
+    static_ips: [<%= z1_ip_nats  %>]
+
+- name: etcd_z1
+  instances: 1
+  resource_pool: small_z1
+  persistent_disk: 10024
+  templates:
+  - {name: etcd, release: cf}
+  - {name: etcd_metrics_server, release: cf}
+  - {name: metron_agent, release: cf}
+  networks:
+  - name: cf1
+    static_ips: [<%= z1_ip_etcd %>]
+  properties:
+    etcd_metrics_server:
+      nats:
+        machines: <%= ip_nats %>
+        password: <%= password_nats %>
+        username: <%= username_nats %>
+
+- name: consul_z1
+  instances: 1
+  persistent_disk: 1024
+  resource_pool: small_z1
+  templates:
+  - {name: consul_agent, release: cf}
+  - {name: metron_agent, release: cf}
+  networks:
+  - name: cf1
+    static_ips: [<%= z1_ip_consul %>]
+  properties:
+    consul:
+      agent:
+        mode: server
+
+- name: blobstore_z1
+  instances: 1
+  persistent_disk: 102400
+  resource_pool: small_z1
+  templates:
+  - {name: blobstore, release: cf}
+  - {name: route_registrar, release: cf}
+  - {name: consul_agent, release: cf}
+  - {name: metron_agent, release: cf}
+  networks:
+  - name: cf1  
+  properties:
+    consul:
+      agent:
+        services:
+          blobstore: {}
+    route_registrar:
+      routes:
+      - name: blobstore
+        port: 8080
+        registration_interval: 20s
+        tags:
+          component: blobstore
+        uris:
+        - "blobstore.<%= system_domain %>"
+
+- name: postgres_z1
+  instances: 1
+  persistent_disk: 4096
+  resource_pool: small_z1
+  templates:
+  - {name: postgres, release: cf}
+  - {name: metron_agent, release: cf}
+  networks:
+  - name: cf1
+    static_ips: [<%= z1_ip_postgres %>]
+  update: {}
+
+- name: api_z1
+  instances: 1
+  resource_pool: small_z1
+  templates:
+  - {name: cloud_controller_ng, release: cf}
+  - {name: cloud_controller_worker, release: cf}
+  - {name: cloud_controller_clock, release: cf}
+  - {name: route_registrar, release: cf}
+  - {name: consul_agent, release: cf}
+  - {name: go-buildpack, release: cf}
+  - {name: binary-buildpack, release: cf}
+  - {name: nodejs-buildpack, release: cf}
+  - {name: ruby-buildpack, release: cf}
+  - {name: java-buildpack, release: cf}
+  - {name: php-buildpack, release: cf}
+  - {name: python-buildpack, release: cf}
+  - {name: staticfile-buildpack, release: cf}
+  - {name: metron_agent, release: cf}
+  networks:
+  - name: cf1
+  properties:
+    consul:
+      agent:
+        services:
+          cloud_controller_ng: {}
+    route_registrar:
+      routes:
+      - name: api
+        registration_interval: 20s
+        port: 9022
+        uris:
+        - "api.<%= system_domain %>"
+
+- name: ha_proxy_z1
+  instances: 1
+  resource_pool: small_z1
+  templates:
+  - {name: haproxy, release: cf}
+  - {name: consul_agent, release: cf}
+  - {name: metron_agent, release: cf}
+  networks:
+  - name: cf1
+    static_ips: [<%= z1_ip_haproxy %>]
+  - name: floating
+    static_ips: [<%= static_ip_haproxy %>]
+    default: [gateway, dns]
+  properties:
+    ha_proxy:
+      ssl_pem: |
+<%= indent(ssl_pem, 8) %>
+<%= indent(ssl_key, 8) %>
+    router:
+      servers: <%= ip_routers %>
+
+- name: doppler_z1
+  instances: 1
+  resource_pool: small_z1
+  templates:
+  - {name: doppler, release: cf}
+  - {name: syslog_drain_binder, release: cf}
+  - {name: metron_agent, release: cf}
+  networks:
+  - name: cf1
+  properties:
+    doppler: {zone: <%= zone1 %>}
+    doppler_endpoint:
+      shared_secret: <%= password_doppler %>
+
+- name: loggregator_trafficcontroller_z1
+  instances: 1
+  resource_pool: small_z1
+  templates:
+  - {name: loggregator_trafficcontroller, release: cf}
+  - {name: route_registrar, release: cf}
+  - {name: metron_agent, release: cf}
+  networks:
+  - name: cf1
+  properties:
+    traffic_controller: {zone: <%= zone1 %>}
+    route_registrar:
+      routes:
+      - name: doppler
+        registration_interval: 20s
+        port: 8081
+        uris:
+        - "doppler.<%= system_domain %>"
+      - name: loggregator
+        registration_interval: 20s
+        port: 8080
+        uris:
+          - "loggregator.<%= system_domain %>"
+
+- name: uaa_z1
+  instances: 1
+  resource_pool: small_z1
+  templates:
+  - {name: uaa, release: cf}
+  - {name: route_registrar, release: cf}
+  - {name: consul_agent, release: cf}
+  - {name: metron_agent, release: cf}
+  networks:
+  - name: cf1
+  properties:
+    login:
+      catalina_opts: -Xmx768m -XX:MaxPermSize=256m
+    route_registrar:
+      routes:
+      - name: uaa
+        registration_interval: 4s
+        port: 8080
+        uris:
+        - "uaa.<%= system_domain %>"
+        - "*.uaa.<%= system_domain %>"
+        - "login.<%= system_domain %>"
+        - "*.login.<%= system_domain %>"
+    uaa:
+      proxy:
+        servers: <%= ip_routers %>
+      admin:
+        client_secret: <%= password_uaaclient %>
+      batch:
+        password: <%= password_uaabatch %>
+        username: batch_user
+      cc:
+        client_secret: <%= password_uaaclient %>
+      scim:
+        userids_enabled: true
+        users:
+          - admin|<%= password_scim_admin %>|scim.write,scim.read,openid,cloud_controller.admin,doppler.firehose,routing.router_groups.read
+          - sudouser|<%= password_scim_sudouser %>|scim.write,scim.read,openid,cloud_controller.admin,clients.read,clients.write,doppler.firehose,routing.router_groups.read,password.write,uaa.admin
+    uaadb:
+      address: <%= z1_ip_uaadb %>
+      databases:
+      - {name: uaadb, tag: uaa}
+      db_scheme: <%= schime_uaadb %>
+      port: <%= port_uaadb %>
+      roles:
+      - {name: uaaadmin, password: <%= password_uaadb_uaaadmin %>, tag: admin}
+
+- name: router_z1
+  instances: 1
+  resource_pool: small_z1
+  templates:
+  - {name: gorouter, release: cf}
+  - {name: consul_agent, release: cf}
+  - {name: metron_agent, release: cf}
+  networks:
+  - name: cf1
+    static_ips: [<%= z1_ip_router %>]
+  properties:
+    dropsonde: {enabled: true}
+
+properties:
+  hm9000:
+    ca_cert: null
+    client_cert: null
+    client_key: null
+    port: 5155
+    server_cert: null
+    server_key: null
+    url: null
+  router:
+    route_services_secret: <%= password_route_secret %>
+    ssl_skip_validation: true
+    status:
+      password: <%= password_route_status %>
+      user: router_user
+  app_domains: [<%= system_domain %>]
+  app_ssh:
+    host_key_fingerprint: <%= app_ssh_host_key_fingerprint %>
+    oauth_client_id: ssh-proxy
+
+    
+password_route_secret
+password_route_status
+app_ssh_host_key_fingerprint = "a6:d1:08:0b:b0:cb:9b:5f:c4:ba:44:2a:97:26:19"
+password_webdav
+
+
+  cc:
+    allow_app_ssh_access: true
+    default_to_diego_backend: true
+    client_max_body_size: 15M
+    default_app_disk_in_mb: 1024
+    default_app_memory: 512
+    internal_api_user: internal_user
+    buildpacks:
+      blobstore_type: webdav
+      buildpack_directory_key: cc-buildpacks
+      webdav_config: &webdav_config
+        blobstore_timeout: 5
+        password: <%= password_webdav %>
+        private_endpoint: https://blobstore.service.cf.internal
+        public_endpoint: https://blobstore.<%= system_domain %>
+        secret: <%= password_comm %>
+        username: blobstore-username
+    droplets:
+      blobstore_type: webdav
+      droplet_directory_key: cc-droplets
+      webdav_config: *webdav_config
+    external_port: 9022
+    packages:
+      blobstore_type: webdav
+      app_package_directory_key: cc-packages
+      max_package_size: 1073741824
+      webdav_config: *webdav_config
+    resource_pool:
+      blobstore_type: webdav
+      resource_directory_key: cc-resources
+      webdav_config: *webdav_config
+    bulk_api_password: <%= password_comm %>
+    db_encryption_key: <%= password_comm %>
+    default_running_security_groups: [public_networks, dns]
+    default_staging_security_groups: [public_networks, dns]
+    install_buildpacks: &install_buildpacks
+    - {name: java_buildpack, package: buildpack_java}
+    - {name: ruby_buildpack, package: ruby-buildpack}
+    - {name: nodejs_buildpack, package: nodejs-buildpack}
+    - {name: go_buildpack, package: go-buildpack}
+    - {name: python_buildpack, package: python-buildpack}
+    - {name: php_buildpack, package: php-buildpack}
+    - {name: staticfile_buildpack, package: staticfile-buildpack}
+    - {name: binary_buildpack, package: binary-buildpack}
+    default_buildpacks: *install_buildpacks
+    internal_api_password: <%= password_comm %>
+    quota_definitions:
+      default:
+        memory_limit: 102400
+        non_basic_services_allowed: true
+        total_routes: 1000
+        total_services: -1
+    security_group_definitions:
+    - name: public_networks
+      rules:
+      - {destination: 0.0.0.0-9.255.255.255, protocol: all}
+      - {destination: 11.0.0.0-169.253.255.255, protocol: all}
+      - {destination: 169.255.0.0-172.15.255.255, protocol: all}
+      - {destination: 172.32.0.0-192.167.255.255, protocol: all}
+      - {destination: 192.169.0.0-255.255.255.255, protocol: all}
+    - name: dns
+      rules:
+      - {destination: 0.0.0.0/0, ports: '53', protocol: tcp}
+      - {destination: 0.0.0.0/0, ports: '53', protocol: udp}
+    srv_api_uri: https://api.<%= system_domain %>
+    # Un normal case if loggregator can access public internet
+    #srv_api_uri: https://cloud-controller-ng.service.cf.internal
+    staging_upload_password: <%= password_comm %>
+    staging_upload_user: staging_upload_user
+  ccdb:
+    address: <%= z1_ip_ccdb %>
+    databases:
+    - {name: ccdb, tag: cc}
+    db_scheme: postgres
+    port: 5524
+    roles:
+    - {name: ccadmin, password: <%= password_comm %>, tag: admin}
+  consul:
+    agent:
+      log_level: null
+      domain: cf.internal
+      servers:
+        lan:
+        - <%= cf_private_ip_consul %>
+    encrypt_keys:
+    - <%= password_comm %>
+    ca_cert: |
+<%= indent(consul_ca_crt, 6) %>
+    server_cert: |
+<%= indent(consul_server_crt, 6) %>
+    agent_cert: |
+<%= indent(consul_agent_crt, 6) %>
+    server_key: |
+<%= indent(consul_server_key, 6) %>
+    agent_key: |
+<%= indent(consul_agent_key, 6) %>
+  blobstore:
+    admin_users:
+    - password: <%= password_comm %>
+      username: blobstore-username
+    secure_link:
+      secret: <%= password_comm %>
+    tls:
+      cert: |
+<%= indent(blobstore_server_crt, 8) %>
+      private_key: |+
+<%= indent(blobstore_server_key, 8) %>
+      ca_cert: |
+<%= indent(blobstore_ca_crt, 8) %>
+  databases:
+    db_scheme: postgres
+    address: <%= cf_private_ip_ccdb %>
+    databases:
+    - {name: ccdb, tag: cc, citext: true}
+    - {name: uaadb, tag: uaa, citext: true}
+    port: 5524
+    roles:
+    - {name: ccadmin, password: <%= password_comm %>, tag: admin}
+    - {name: uaaadmin, password: <%= password_comm %>, tag: admin}
+  description: Cloud Foundry powered by Crossent PaaSXpert
+  domain: <%= system_domain %>
+  doppler:
+    port: 4443
+  etcd:
+    advertise_urls_dns_suffix: etcd.service.cf.internal
+    machines: 
+    - <%= cf_private_ip_etcd %>
+    peer_require_ssl: false
+    require_ssl: false
+  logger_endpoint:
+    port: 4443
+  loggregator:
+    etcd:
+      require_ssl: false
+      machines:
+      - <%= cf_private_ip_etcd %>
+  loggregator_endpoint:
+    shared_secret: <%= password_comm %>
+  metron_agent:
+    zone: z1
+    buffer_size: null
+    deployment: <%= deployment_name %> 
+    enable_buffer: null
+    preferred_protocol: null
+    tls:
+      client_cert: null
+      client_key: null
+  metron_endpoint:
+    shared_secret: <%= password_comm %>
+  nats:
+    machines: 
+    - <%= cf_private_ip_nats %>
+    password: <%= password_comm %>
+    port: 4222
+    user: nats
+  ssl:
+    skip_cert_verify: true
+  system_domain: <%= system_domain %>
+  system_domain_organization: default_organization
+  uaa:
+    clients:
+      cf:
+        access-token-validity: 600
+        authorities: uaa.none
+        authorized-grant-types: implicit,password,refresh_token
+        autoapprove: true
+        override: true
+        refresh-token-validity: 2592000
+        scope: cloud_controller.read,cloud_controller.write,openid,password.write,cloud_controller.admin,scim.read,scim.write,doppler.firehose,uaa.user,routing.router_groups.read
+      cc-service-dashboards:
+        authorities: clients.read,clients.write,clients.admin
+        authorized-grant-types: client_credentials
+        scope: openid,cloud_controller_service_permissions.read
+        secret: <%= password_comm %>
+      cloud_controller_username_lookup:
+        authorities: scim.userids
+        authorized-grant-types: client_credentials
+        secret: <%= password_comm %>
+      cc_routing:
+        authorities: routing.router_groups.read
+        secret: <%= password_comm %>
+        authorized-grant-types: client_credentials
+      gorouter:
+        authorities: routing.routes.read
+        authorized-grant-types: client_credentials,refresh_token
+        secret: <%= password_comm %>
+      tcp_emitter:
+        authorities: routing.routes.write,routing.routes.read
+        authorized-grant-types: client_credentials,refresh_token
+        secret: <%= password_comm %>
+      tcp_router:
+        authorities: routing.routes.read
+        authorized-grant-types: client_credentials,refresh_token
+        secret: <%= password_comm %>
+      doppler:
+        authorities: uaa.resource
+        secret: <%= password_comm %>
+      login:
+        authorities: oauth.login,scim.write,clients.read,notifications.write,critical_notifications.write,emails.write,scim.userids,password.write
+        authorized-grant-types: authorization_code,client_credentials,refresh_token
+        redirect-uri: https://login.<%= system_domain %>
+        scope: openid,oauth.approvals
+        secret: <%= password_comm %>
+      servicesmgmt:
+        authorities: uaa.resource,oauth.service,clients.read,clients.write,clients.secret
+        authorized-grant-types: authorization_code,client_credentials,password,implicit
+        autoapprove: true
+        redirect-uri: https://servicesmgmt.<%= system_domain %>/auth/cloudfoundry/callback
+        scope: openid,cloud_controller.read,cloud_controller.write
+        secret: <%= password_comm %>
+      developer_console:
+        secret: <%= password_comm %>
+      notifications:
+        authorities: cloud_controller.admin,scim.read
+        authorized-grant-types: client_credentials
+        secret: <%= password_comm %>
+      ssh-proxy:
+        authorized-grant-types: authorization_code
+        autoapprove: true
+        override: true
+        redirect-uri: /login
+        scope: openid,cloud_controller.read,cloud_controller.write,cloud_controller.admin,uaa.user
+        secret: <%= password_comm %>
+      portal:
+        authorities: oauth.login,scim.write,clients.read,scim.userids,password.write,clients.secret,clients.write,uaa.admin,scim.read,doppler.firehose
+        authorized-grant-types: authorization_code,client_credentials,password,implicit,refresh_token
+        override: true
+        scope: cloud_controller.read,cloud_controller.write,openid,cloud_controller.admin,scim.read,scim.write,doppler.firehose,uaa.user,routing.router_groups.read,uaa.admin,password.write
+        secret: <%= password_comm %>
+
+
+    issuer: https://uaa.<%= system_domain %>
+    jwt:
+      signing_key: |
+<%= indent(ssl_key, 8) %>
+      verification_key: |
+<%= indent(ssl_pub, 8) %>
+    no_ssl: true
+    port: 8080
+    ssl:
+      port: -1
+    url: https://uaa.<%= system_domain %>
