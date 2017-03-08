@@ -1,4 +1,23 @@
 <%
+module Comm
+    def read_cert(file_name)
+      file = File.open(file_name, "r")
+      data = file.read
+      file.close
+      return data
+    end
+
+    def indent(data, repeat)
+      data = data.gsub(/^/, " " * repeat)
+      return data
+    end
+
+    def gen_passwd()
+        return SecureRandom.random_number(36**12).to_s(36).rjust(12, "0")
+    end
+end
+
+include Comm
 
 deployment_name = "cf"
 director_uuid = "bbb24dd1-b082-46a7-891c-63a6577e77f7"
@@ -18,11 +37,14 @@ zone1 = "ZN_PAAS_01"
 static_ip_haproxy = "192.1680.100.100" # Floating IP
 
 z1_ip_uaadb = "10.100.0.255" # z1_ip_postgres
-password_uaadb_uaaadmin = "password"
+password_uaadb_uaaadmin = gen_passwd()
 schime_uaadb = "postgresql"
 port_uaadb = "5524"
 
 z1_ip_ccdb = "10.100.0.255"  # z1_ip_postgres 
+password_ccdb_ccadmin = gen_passwd()
+schime_ccdb = "postgresql"
+port_ccdb = "5524"
 
 z1_ip_nats = "10.102.2.102"
 z1_ip_etcd = "10.102.2.108"
@@ -36,55 +58,54 @@ ip_routers = "[ z1_ip_routers ]" ///
 ip_consuls = "[ z1_ip_consul ]" ///
 ip_etcds = "[z1_ip_etcd]" ///
 
-password_nats = "shared_secret"
-password_doppler = "shared_secret"
-password_uaabatch = "shared_secret"
-password_uaaclient = "shared_secret"
-password_scim_admin = "password"
-password_scim_sudouser = "password"
-password_route_secret = "secret"
-password_route_status = "secret"
-password_blobstore = "secret"
-password_bulk_api = "secret"
-password_db_encryption_key = "secret"
-password_internal_api = "secret"
-password_staging_upload = "secret"
-password_consul_encrypt_key = "secret"
-password_loggregator = "secret"
-password_metron = "secret"
 app_ssh_host_key_fingerprint = "a6:d1:08:0b:b0:cb:9b:5f:c4:ba:44:2a:97:26:19"
 
-z1_ip_ccdb = "10.100.0.255"  # z1_ip_postgres 
-password_ccdb_ccadmin = "password"
-schime_ccdb = "postgresql"
-port_ccdb = "5524"
+haproxy_path = "haproxy-cert/" + system_domain
+ssl_pem = read_cert(haproxy_path + ".pem")
+ssl_key = read_cert(haproxy_path + ".key")
+ssl_pub = read_cert(haproxy_path + ".pub")
 
-secret_cc_routing = "secret"
-secret_cloud_controller_username_lookup = "secret"
-secret_gorouter = "secret"
-secret_tcp_emitter = "secret"
-secret_tcp_router = "secret"
-secret_doppler = "secret"
-secret_login = "secret"
-secret_developer_console = "secret"
-secret_notifications = "secret"
-secret_ssh_proxy = "secret"
-secret_portal = "secret"
-
-ssl_pem = $(cat ssl_pem)
-ssl_key = $(cat ssl_key)
-ssl_key = 
-ssl_pub = 
-
+consul_path = "consul-certs/"
 consul_ca_crt =  $(cat ssl_key)
-consul_server_crt =
-consul_agent_crt =
-consul_server_key =
-consul_agent_key =
+consul_ca_crt =  read_cert(consul_path + "server-ca.crt")
+consul_server_key =  read_cert(consul_path + "server.key")
+consul_server_crt =  read_cert(consul_path + "server.crt")
+consul_agent_key =  read_cert(consul_path + "agent.key")
+consul_agent_crt =  read_cert(consul_path + "agent.crt")
 
-blobstore_server_crt =
-blobstore_server_key =
-blobstore_ca_crt =
+blobstore_path = "blobstore-certs/"
+blobstore_ca_crt =  read_cert(consul_path + "server-ca.crt")
+blobstore_server_crt =  read_cert(consul_path + "server.crt")
+blobstore_server_key =  read_cert(consul_path + "server.key")
+
+password_nats = gen_passwd()
+password_doppler = gen_passwd()
+password_uaabatch = gen_passwd()
+password_uaaclient = gen_passwd()
+password_scim_admin = gen_passwd()
+password_scim_sudouser = gen_passwd()
+password_route_secret = gen_passwd()
+password_route_status = gen_passwd()
+password_blobstore = gen_passwd()
+password_bulk_api = gen_passwd()
+password_db_encryption_key = gen_passwd()
+password_internal_api = gen_passwd()
+password_staging_upload = gen_passwd()
+password_consul_encrypt_key = gen_passwd()
+password_loggregator = gen_passwd()
+password_metron = gen_passwd()
+
+secret_cc_routing = gen_passwd()
+secret_cloud_controller_username_lookup = gen_passwd()
+secret_gorouter = gen_passwd()
+secret_tcp_emitter = gen_passwd()
+secret_tcp_router = gen_passwd()
+secret_doppler = gen_passwd()
+secret_login = gen_passwd()
+secret_developer_console = gen_passwd()
+secret_notifications = gen_passwd()
+secret_ssh_proxy = gen_passwd()
+secret_portal = gen_passwd()
 
 %>
 
