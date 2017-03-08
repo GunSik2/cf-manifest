@@ -1,5 +1,5 @@
 <%
-bosh = 'microbosh'
+bosh_name = 'microbosh'
 api_endpoint = "http://10.10.10.10:5000/v2.0"
 tenant = "paas"
 username = "paas"
@@ -14,7 +14,7 @@ keypair_name = "paas"
 private_key = "./bosh.pem "
 %>
 ---                                                                                                          
-name: micro-bosh                                                                                                   
+name: <%= bosh_name %>                                                                                                  
 
 releases:
 - name: bosh
@@ -102,7 +102,7 @@ jobs:
 
     director:
       address: 127.0.0.1
-      name: micro-bosh
+      name: <%= bosh_name %>
       db: *db
       cpi_job: openstack_cpi
       max_threads: 3
