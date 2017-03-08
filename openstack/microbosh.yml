@@ -1,0 +1,149 @@
+<%
+bosh = 'microbosh'
+api_endpoint = "http://10.10.10.10:5000/v2.0"
+tenant = "paas"
+username = "paas"
+password = "paas"
+net_uuid = "43280876-62f5-4bbd-9bcd-b320b46221ed"
+private_cidr = "192.168.10.0/24"
+private_gw_ip = "192.168.10.1"
+private_ip = "192.168.10.10"
+dns_ip = "8.8.8.8 8.8.4.4"
+secyrity_group = "paas"
+keypair_name = "paas"
+private_key = "./bosh.pem "
+%>
+---                                                                                                          
+name: micro-bosh                                                                                                   
+
+releases:
+- name: bosh
+  url: https://bosh.io/d/github.com/cloudfoundry/bosh?v=257.3
+  sha1: e4442afcc64123e11f2b33cc2be799a0b59207d0
+- name: bosh-openstack-cpi
+  url: https://bosh.io/d/github.com/cloudfoundry-incubator/bosh-openstack-cpi-release?v=25
+  sha1: 8ad0182d9cb6638bc216d7fa77d521390971e2a5
+
+resource_pools:
+- name: vms
+  network: private
+  stemcell:
+    url: https://bosh.io/d/stemcells/bosh-openstack-kvm-ubuntu-trusty-go_agent?v=3262.2
+    sha1: d4602058781befadf0ec4f2556aa670e76135546
+  cloud_properties:
+    instance_type: m1.xlarge
+
+disk_pools:
+- name: disks
+  disk_size: 60_000
+
+networks:
+- name: private
+  type: manual
+  subnets:
+  - range: <%= private_cidr %> 
+    gateway: <%= private_gw_ip %> 
+    dns: [<%= dns_ip %>]
+    cloud_properties: {net_id: <%= net_uuid %> }
+- name: public
+  type: vip
+
+jobs:
+- name: bosh
+  instances: 1
+
+  templates:
+  - {name: nats, release: bosh}
+  - {name: postgres, release: bosh}
+  - {name: blobstore, release: bosh}
+  - {name: director, release: bosh}
+  - {name: health_monitor, release: bosh}
+  - {name: registry, release: bosh}
+  - {name: openstack_cpi, release: bosh-openstack-cpi}
+
+  resource_pool: vms
+  persistent_disk_pool: disks
+
+  networks:
+  - name: private
+    static_ips: [<%= private_ip %>] 
+    default: [dns, gateway]
+
+  properties:
+    nats:
+      address: 127.0.0.1
+      user: nats
+      password: nats-password
+
+    postgres: &db
+      listen_address: 127.0.0.1
+      host: 127.0.0.1
+      user: postgres
+      password: postgres-password
+      database: bosh
+      adapter: postgres
+
+    registry:
+      address: <%= private_ip %> 
+      host: <%= private_ip %>
+      db: *db
+      http: {user: admin, password: admin, port: 25777}
+      username: admin
+      password: admin
+      port: 25777
+      endpoint: http://admin:admin@<%= private_ip %>:25777
+
+    blobstore:
+      address: <%= private_ip %> 
+      port: 25250
+      provider: dav
+      director: {user: director, password: director-password}
+      agent: {user: agent, password: agent-password}
+
+    director:
+      address: 127.0.0.1
+      name: micro-bosh
+      db: *db
+      cpi_job: openstack_cpi
+      max_threads: 3
+      user_management:
+        provider: local
+        local:
+          users:
+          - {name: admin, password: admin}
+          - {name: hm, password: hm-password}
+
+    hm:
+      director_account: {user: hm, password: hm-password}
+      resurrector_enabled: true
+
+    openstack: &openstack
+      auth_url: <%= api_endpoint %> 
+      tenant: <%= tenant %>
+      username: <%= username %> 
+      api_key: <%= password  %>
+      default_key_name: <%= keypair_name %> 
+      default_security_groups: [<%= secyrity_group %>]
+      ignore_server_availability_zone: true
+      human_readable_vm_names: true
+
+    agent: {mbus: "nats://nats:nats-password@<%= private_ip %>:4222"} 
+
+    ntp: &ntp [0.pool.ntp.org, 1.pool.ntp.org]
+
+cloud_provider:
+  template: {name: openstack_cpi, release: bosh-openstack-cpi}
+
+  ssh_tunnel:
+    host: <%= private_ip %>
+    port: 22
+    user: vcap
+    private_key: <%= private_key %>
+
+  mbus: "https://mbus:mbus-password@<%= private_ip %>:6868"
+
+  properties:
+    openstack: *openstack
+    agent: {mbus: "https://mbus:mbus-password@0.0.0.0:6868"}
+    blobstore: {provider: local, path: /var/vcap/micro_bosh/data/cache}
+    ntp: *ntp
