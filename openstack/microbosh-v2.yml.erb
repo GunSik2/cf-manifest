@@ -1,17 +1,20 @@
 <%
 bosh_name = 'microbosh'
-api_endpoint = "http://10.10.10.10:5000/v2.0"
-tenant = "paas"
-username = "paas"
-password = "paas"
-net_uuid = "43280876-62f5-4bbd-9bcd-b320b46221ed"
-private_cidr = "192.168.10.0/24"
-private_gw_ip = "192.168.10.1"
-private_ip = "192.168.10.10"
+
+api_endpoint = ENV["OS_AUTH_URL"]  #""http://10.10.10.10:5000/v2.0"
+tenant = ENV["OS_TENANT_NAME"] #"paas"
+username = ENV["OS_USERNAME"] #"paas"
+password = ENV["OS_PASSWORD"] #"paas"
+net_uuid = "e109d831-76a2-482b-b75e-133e2256cba2"
+private_cidr = "10.100.20.0/24"
+private_gw_ip = "10.100.20.1"
+private_ip = "10.100.20.10"
 dns_ip = "8.8.8.8 8.8.4.4"
-secyrity_group = "paas"
-keypair_name = "paas"
+secyrity_group = "bosh"
+keypair_name = "bosh"
 private_key = "./bosh.pem "
+
+
 %>
 ---                                                                                                          
 name: <%= bosh_name %>                                                                                                  
