@@ -9,7 +9,7 @@ net_uuid = "e109d831-76a2-482b-b75e-133e2256cba2"
 private_cidr = "10.100.20.0/24"
 private_gw_ip = "10.100.20.1"
 private_ip = "10.100.20.10"
-dns_ip = "8.8.8.8 8.8.4.4"
+dns_ip = "[8.8.8.8, 8.8.4.4]"
 secyrity_group = "bosh"
 keypair_name = "bosh"
 private_key = "./bosh.pem "
@@ -46,7 +46,7 @@ networks:
   subnets:
   - range: <%= private_cidr %> 
     gateway: <%= private_gw_ip %> 
-    dns: [<%= dns_ip %>]
+    dns: <%= dns_ip %>
     cloud_properties: {net_id: <%= net_uuid %> }
 - name: public
   type: vip
