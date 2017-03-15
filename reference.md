@@ -6,3 +6,7 @@
 - [v252 cf stub](https://github.com/cloudfoundry/cf-release/blob/v252/spec/fixtures/aws/cf-stub.yml)
 - [v252 bosh-lite yml]()
 - [bosh deployment - new mechnisim](https://github.com/cloudfoundry/bosh-deployment)
+
+
+Features
+- [cf networking release](https://github.com/cloudfoundry-incubator/cf-networking-release)
